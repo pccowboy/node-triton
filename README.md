@@ -46,20 +46,66 @@ Have the URL handy as you'll need it in the next step.
 
 ### Installation
 
-1. Install [node.js](http://nodejs.org/).
-2. `npm install -g triton`
+Install [node.js](http://nodejs.org/), then:
+
+    npm install -g triton
 
 Verify that it is installed and on your PATH:
 
     $ triton --version
-    Triton CLI 1.0.0
+    Triton CLI 4.15.0
+    https://github.com/joyent/node-triton
 
-Configure the proper environmental variables that correspond to the API endpoint and account,
-for example:
+To use `triton`, you'll need to configure it to talk to a Triton DataCenter
+API endpoint (called CloudAPI). Commonly that is done using a Triton profile:
 
-    SDC_URL=https://us-east-3b.api.joyent.com
-    SDC_ACCOUNT=dave.eddy@joyent.com
-    SDC_KEY_ID=04:0c:22:25:c9:85:d8:e4:fa:27:0d:67:94:68:9e:e9
+    $ triton profile create
+    A profile name. A short string to identify a CloudAPI endpoint to the
+    `triton` CLI.
+    name: sw1
+
+    The CloudAPI endpoint URL.
+    url: https://us-sw-1.api.joyent.com
+
+    Your account login name.
+    account: bob
+
+    Available SSH keys:
+     1. 2048-bit RSA key with fingerprint 4e:e7:56:9a:b0:91:31:3e:23:8d:f8:62:12:58:a2:ec
+      * [in homedir] bob-20160704 id_rsa
+
+    The fingerprint of the SSH key you want to use, or its index in the list
+    above. If the key you want to use is not listed, make sure it is either saved
+    in your SSH keys directory or loaded into the SSH agent.
+    keyId: 1
+
+    Saved profile "sw1".
+
+    WARNING: Docker uses TLS-based authentication with a different security model
+    from SSH keys. As a result, the Docker client cannot currently support
+    encrypted (password protected) keys or SSH agents. If you continue, the
+    Triton CLI will attempt to format a copy of your SSH *private* key as an
+    unencrypted TLS cert and place the copy in ~/.triton/docker for use by the
+    Docker client.
+    Continue? [y/n] y
+    Setting up profile "sw1" to use Docker.
+    Setup profile "sw1" to use Docker (v1.12.3). Try this:
+        eval "$(triton env --docker sw1)"
+        docker info
+
+    Set "sw1" as current profile (because it is your only profile).
+
+Or instead of using profiles, you can set the required environment variables
+(`triton` defaults to an "env" profile that uses these environment variables if
+no profile is set). For example:
+
+    TRITON_URL=https://us-sw-1.api.joyent.com
+    TRITON_ACCOUNT=bob
+    TRITON_KEY_ID=SHA256:j2WoSeOWhFy69BQ0uCR3FAySp9qCZTSCEyT2vRKcL+s
+
+For compatibility with the older [sdc-* tools from
+node-smartdc](https://github.com/joyent/node-smartdc), `triton` also supports
+`SDC_URL`, `SDC_ACCOUNT`, etc. environment variables.
 
 
 ### Bash completion
@@ -234,19 +280,27 @@ documentation](https://apidocs.joyent.com/docker) for more information.)
 ## `TritonApi` Module Usage
 
 Node-triton can also be used as a node module for your own node.js tooling.
-A basic example:
+A basic example appropriate for a command-line tool is:
 
-    var triton = require('triton');
+```javascript
+var mod_bunyan = require('bunyan');
+var mod_triton = require('triton');
 
-    // See `createClient` block comment for full usage details:
-    //      https://github.com/joyent/node-triton/blob/master/lib/index.js
-    var client = triton.createClient({
-        profile: {
-            url: URL,
-            account: ACCOUNT,
-            keyId: KEY_ID
-        }
-    });
+var log = mod_bunyan.createLogger({name: 'my-tool'});
+
+// See the `createClient` block comment for full usage details:
+//      https://github.com/joyent/node-triton/blob/master/lib/index.js
+mod_triton.createClient({
+    log: log,
+    // Use 'env' to pick up 'TRITON_/SDC_' env vars. Or manually specify a
+    // `profile` object.
+    profileName: 'env',
+    unlockKeyFn: mod_triton.promptPassphraseUnlockKey
+}, function (err, client) {
+    if (err) {
+        // handle err
+    }
+
     client.listImages(function (err, images) {
         client.close();   // Remember to close the client to close TCP conn.
         if (err) {
@@ -255,7 +309,14 @@ A basic example:
             console.log(JSON.stringify(images, null, 4));
         }
     });
+});
+```
 
+See the following for more details:
+- The block-comment for `createClient` in [lib/index.js](lib/index.js).
+- Some module-usage examples in [examples/](examples/).
+- The lower-level details in the top-comment in
+  [lib/tritonapi.js](lib/tritonapi.js).
 
 
 ## Configuration
@@ -278,24 +339,6 @@ are in "etc/defaults.json" and can be overriden for the CLI in
 - Node-smartdc still has more complete coverage of the Triton
   [CloudAPI](https://apidocs.joyent.com/cloudapi/). However, `triton` is
   catching up and is much more friendly to use.
-
-
-## cloudapi2.js differences with node-smartdc/lib/cloudapi.js
-
-The old node-smartdc module included an lib for talking directly to the SDC
-Cloud API (node-smartdc/lib/cloudapi.js). Part of this module (node-triton) is a
-re-write of the Cloud API lib with some backward incompatibilities. The
-differences and backward incompatibilities are discussed here.
-
-- Currently no caching options in cloudapi2.js (this should be re-added in
-  some form). The `noCache` option to many of the cloudapi.js methods will not
-  be re-added, it was a wart.
-- The leading `account` option to each cloudapi.js method has been dropped. It
-  was redundant for the constructor `account` option.
-- "account" is now "user" in the CloudAPI constructor.
-- All (all? at least at the time of this writing) methods in cloudapi2.js have
-  a signature of `function (options, callback)` instead of the sometimes
-  haphazard extra arguments.
 
 
 ## Development Hooks
@@ -349,6 +392,33 @@ You can use `TRITON_TEST_CONFIG` to override the test file, e.g.:
 
 where "coal" here refers to a development Triton (a.k.a SDC) ["Cloud On A
 Laptop"](https://github.com/joyent/sdc#getting-started) standup.
+
+
+## Release process
+
+Here is how to cut a release:
+
+1. Make a commit to set the intended version in "package.json#version" and changing `## not yet released` at the top of "CHANGES.md" to:
+
+    ```
+    ## not yet released
+
+
+    ## $version
+    ```
+
+2. Get that commit approved and merged via <https://cr.joyent.us>, as with all
+   commits to this repo. See the discussion of contribution at the top of this
+   readme.
+
+3. Once that is merged and you've updated your local copy, run:
+
+    ```
+    make cutarelease
+    ```
+
+   This will run a couple checks (clean working copy, versions in package.json
+   and CHANGES.md match), then will git tag and npm publish.
 
 
 ## License

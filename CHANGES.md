@@ -5,9 +5,137 @@ Known issues:
 - `triton ssh ...` disables ssh ControlMaster to avoid issue #52.
 
 
-## 4.13.1 (not yet released)
+## not yet released
 
-(nothing yet)
+- [joyent/node-triton#80] Add `triton network list public=true|false`
+  filtering. Note that this filtering is client-side.
+
+- [joyent/node-triton#146] Add `--wait` flag to `triton instance rename`.
+
+- [joyent/node-triton#133] Add `triton inst fwrule list` and `triton fwrules` shortcuts
+  for the existing `triton inst fwrules` and `triton fwrule list`, respectively.
+
+- [joyent/node-triton#3] triton ssh command not aware of "ubuntu" login for ubuntu-certified images
+
+- [joyent/node-triton#137] Improve the handling for the getting started case
+  when a user may not have envvars or a profile setup.
+
+- [joyent/node-triton#158] tritonapi image cache never expires
+
+- [joyent/node-triton#153] Bump restify-clients dep. Thanks, github.com/tomgco.
+
+- [joyent/node-triton#154] Fix `triton cloudapi ...` after #108 changes.
+
+- **BREAKING CHANGE for module usage of node-triton.**
+  To implement joyent/node-triton#108, the way a TritonApi client is
+  setup for use has changed from being (unrealistically) sync to async.
+
+  Client preparation is now a multi-step process:
+
+  1. create the client object;
+  2. initialize it (mainly involves finding the SSH key identified by the
+     `keyId`); and,
+  3. optionally unlock the SSH key (if it is passphrase-protected and not in
+     an ssh-agent).
+
+  `createClient` has changed to take a callback argument. It will create and
+  init the client (steps 1 and 2) and takes an optional `unlockKeyFn` parameter
+  to handle step 3. A new `mod_triton.promptPassphraseUnlockKey` export can be
+  used for `unlockKeyFn` for command-line tools to handle prompting for a
+  passphrase on stdin, if required. Therefore what used to be:
+
+        var mod_triton = require('triton');
+        try {
+            var client = mod_triton.createClient({      # No longer works.
+                profileName: 'env'
+            });
+        } catch (initErr) {
+            // handle err
+        }
+
+        // use `client`
+
+  is now:
+
+        var mod_triton = require('triton');
+        mod_triton.createClient({
+            profileName: 'env',
+            unlockKeyFn: triton.promptPassphraseUnlockKey
+        }, function (err, client) {
+            if (err) {
+                // handle err
+            }
+
+            // use `client`
+        });
+
+  See [the examples/ directory](examples/) for more complete examples.
+
+  Low-level/raw handling of the three steps above is possible as follows
+  (error handling is elided):
+
+        var mod_bunyan = require('bunyan');
+        var mod_triton = require('triton');
+
+        // 1. create
+        var client = mod_triton.createTritonApiClient({
+            log: mod_bunyan.createLogger({name: 'my-tool'}),
+            config: {},
+            profile: mod_triton.loadProfile('env')
+        });
+
+        // 2. init
+        client.init(function (initErr) {
+            // 3. unlock key
+            // See top-comment in "lib/tritonapi.js".
+        });
+
+- [joyent/node-triton#108] Support for passphrase-protected private keys.
+  Before this work, an encrypted private SSH key (i.e. protected by a
+  passphrase) would have to be loaded in an ssh-agent for the `triton`
+  CLI to use it. Now `triton` will prompt for the passphrase to unlock
+  the private key (in memory), if needed. For example:
+
+        $ triton package list
+        Enter passphrase for id_rsa:
+        SHORTID   NAME             MEMORY  SWAP  DISK  VCPUS
+        14ad9d54  g4-highcpu-128M    128M  512M    3G      -
+        14ae2634  g4-highcpu-256M    256M    1G    5G      -
+        ...
+
+- [joyent/node-triton#143] Fix duplicate output from 'triton rbac key ...'.
+
+## 4.15.0
+
+- [joyent/node-triton#64] Support 'triton instance rename ...' (by
+  github.com/YangYong3).
+- [trentm/node-dashdash#30, joyent/node-triton#144] Change the output used by
+  Bash completion support to indicate "there are no completions for this
+  argument" to cope with different sorting rules on different Bash/platforms.
+  For example:
+
+        $ triton -p test2 package get <TAB>          # before
+        ##-no -tritonpackage- completions-##
+
+        $ triton -p test2 package get <TAB>          # after
+        ##-no-completion- -results-##
+
+## 4.14.2
+
+- TOOLS-1592 First workaround for a possible BadDigestError when using
+  node v6.
+
+## 4.14.1
+
+- TOOLS-1587 'triton profile docker-setup' fails when path to 'docker' has
+  spaces. This can help on Windows where Docker Toolbox installs docker.exe
+  to "C:\Program Files\Docker Toolbox".
+- [#136] bash completion for `triton profile create --copy <TAB>`
+
+## 4.14.0
+
+- [#130] Include disabled images when using an image cache (e.g. for filling in
+  image name and version details in `triton ls` output.
 
 
 ## 4.13.0
